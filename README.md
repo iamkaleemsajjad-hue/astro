@@ -1,103 +1,43 @@
-![Build the web you want](.github/assets/banner.jpg 'Build the web you want')
+# Reproduction: AstroSession Logger & #partial State Bug
 
-<p align="center">
-  <br/>
-  <a href="https://astro.build">Astro</a> is a website build tool for the modern web &mdash;
-  <br/>
-  powerful developer experience meets lightweight output.
-  <br/><br/>
-</p>
+This branch (`repro/session-logger-bug`) contains a minimal reproducible example for two unit-level bugs in the `AstroSession` runtime:
 
-<div align="center">
+1. `console.error` bypassing the structured log sink during session regeneration.
+2. `#partial` state flag not being reset on the `regenerate()` error path.
 
-[![main](https://github.com/withastro/astro/actions/workflows/ci.yml/badge.svg)](https://github.com/withastro/astro/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/withastro/astro/blob/main/LICENSE)
-[![npm version](https://badge.fury.io/js/astro.svg)](https://badge.fury.io/js/astro)
+## The Bugs
 
-</div>
+In `packages/astro/src/core/session/runtime.ts`:
 
-## Install
+1. **Logging Bypass:** `regenerate()` and `PERSIST_SYMBOL` contain three `console.error` call-sites. Every other warning in the Astro pipeline routes through `pipeline.logger` (an `AstroLogger` instance). These three calls write directly to `process.stderr`, bypassing any custom log destination, log-level filtering, or structured log sinks that a user or adapter has configured.
 
-The **recommended** way to install the latest version of Astro is by running the command below:
+2. **Inconsistent `#partial` State:** When `#ensureData()` throws during `regenerate()`, the catch block logs the error and continues with an empty `Map`. However, `#partial` is not set to `false`. After `regenerate()` assigns the new session ID and calls `#setCookie()`, the instance still has `#partial = true`. A subsequent call to `get()` triggers another `#ensureData()` call, which attempts to load data from the new (empty) session ID in storage, unnecessarily round-tripping to the driver.
 
-```bash
-npm create astro@latest
-```
+## Steps to Reproduce
 
-You can also install Astro **manually** by running this command instead:
+1. Clone the repository and check out this branch:
+   ```bash
+   git checkout repro/session-logger-bug
+   ```
 
-```bash
-npm install astro
-```
+2. Install dependencies:
+   ```bash
+   pnpm install
+   ```
 
-Looking for help? Start with our [Getting Started](https://docs.astro.build/en/getting-started/) guide.
+3. Run the targeted unit test:
+   ```bash
+   pnpm -C packages/astro exec astro-scripts test "test/units/sessions/regenerate-logger.test.ts"
+   ```
 
-Looking for quick examples? [Open a starter project](https://astro.new/) right in your browser.
+## Expected Behavior
 
-## Documentation
+The test expects:
+- Session diagnostics should be emitted through `AstroLogger` (`logger.warn()`) instead of `console.error()`.
+- `regenerate()` should leave the session in a non-partial state (`#partial = false`) after recovering from an error, preventing unnecessary storage reads on subsequent `get()` calls.
 
-Visit our [official documentation](https://docs.astro.build/).
+## Actual Behavior
 
-## Support
-
-Having trouble? Get help in the official [Astro Discord](https://astro.build/chat).
-
-## Contributing
-
-**New contributors welcome!** Check out our [Contributors Guide](CONTRIBUTING.md) for help getting started.
-
-Join us on [Discord](https://astro.build/chat) to meet other maintainers. We'll help you get your first contribution in no time!
-
-## Directory
-
-| Package                                                             | Release Notes                                                                                                                                                    |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [astro](packages/astro)                                             | [![astro version](https://img.shields.io/npm/v/astro.svg?label=%20)](packages/astro/CHANGELOG.md)                                                                |
-| [create-astro](packages/create-astro)                               | [![create-astro version](https://img.shields.io/npm/v/create-astro.svg?label=%20)](packages/create-astro/CHANGELOG.md)                                           |
-| [@astrojs/react](packages/integrations/react)                       | [![@astrojs/react version](https://img.shields.io/npm/v/@astrojs/react.svg?label=%20)](packages/integrations/react/CHANGELOG.md)                                 |
-| [@astrojs/preact](packages/integrations/preact)                     | [![@astrojs/preact version](https://img.shields.io/npm/v/@astrojs/preact.svg?label=%20)](packages/integrations/preact/CHANGELOG.md)                              |
-| [@astrojs/solid-js](packages/integrations/solid)                    | [![@astrojs/solid version](https://img.shields.io/npm/v/@astrojs/solid-js.svg?label=%20)](packages/integrations/solid/CHANGELOG.md)                              |
-| [@astrojs/svelte](packages/integrations/svelte)                     | [![@astrojs/svelte version](https://img.shields.io/npm/v/@astrojs/svelte.svg?label=%20)](packages/integrations/svelte/CHANGELOG.md)                              |
-| [@astrojs/vue](packages/integrations/vue)                           | [![@astrojs/vue version](https://img.shields.io/npm/v/@astrojs/vue.svg?label=%20)](packages/integrations/vue/CHANGELOG.md)                                       |
-| [@astrojs/node](packages/integrations/node)                         | [![@astrojs/node version](https://img.shields.io/npm/v/@astrojs/node.svg?label=%20)](packages/integrations/node/CHANGELOG.md)                                    |
-| [@astrojs/vercel](packages/integrations/vercel)                     | [![@astrojs/vercel version](https://img.shields.io/npm/v/@astrojs/vercel.svg?label=%20)](packages/integrations/vercel/CHANGELOG.md)                              |
-| [@astrojs/cloudflare](packages/integrations/cloudflare)             | [![@astrojs/cloudflare version](https://img.shields.io/npm/v/@astrojs/cloudflare.svg?label=%20)](packages/integrations/cloudflare/CHANGELOG.md)                  |
-| [@astrojs/partytown](packages/integrations/partytown)               | [![@astrojs/partytown version](https://img.shields.io/npm/v/@astrojs/partytown.svg?label=%20)](packages/integrations/partytown/CHANGELOG.md)                     |
-| [@astrojs/sitemap](packages/integrations/sitemap)                   | [![@astrojs/sitemap version](https://img.shields.io/npm/v/@astrojs/sitemap.svg?label=%20)](packages/integrations/sitemap/CHANGELOG.md)                           |
-| [@astrojs/alpinejs](packages/integrations/alpinejs)                 | [![@astrojs/alpinejs version](https://img.shields.io/npm/v/@astrojs/alpinejs.svg?label=%20)](packages/integrations/alpinejs/CHANGELOG.md)                        |
-| [@astrojs/mdx](packages/integrations/mdx)                           | [![@astrojs/mdx version](https://img.shields.io/npm/v/@astrojs/mdx.svg?label=%20)](packages/integrations/mdx/CHANGELOG.md)                                       |
-| [@astrojs/rss](packages/astro-rss)                                  | [![@astrojs/rss version](https://img.shields.io/npm/v/@astrojs/rss.svg?label=%20)](packages/astro-rss/CHANGELOG.md)                                              |
-| [@astrojs/netlify](packages/integrations/netlify)                   | [![@astrojs/netlify version](https://img.shields.io/npm/v/@astrojs/netlify.svg?label=%20)](packages/integrations/netlify/CHANGELOG.md)                           |
-| [@astrojs/check](packages/language-tools/astro-check)               | [![astro-check version](https://img.shields.io/npm/v/@astrojs/check.svg?label=%20)](packages/language-tools/astro-check/CHANGELOG.md)                            |
-| [@astrojs/language-server](packages/language-tools/language-server) | [![@astrojs/language-server version](https://img.shields.io/npm/v/@astrojs/language-server.svg?label=%20)](packages/language-tools/language-server/CHANGELOG.md) |
-| [@astrojs/ts-plugin](packages/language-tools/ts-plugin)             | [![@astrojs/ts-plugin version](https://img.shields.io/npm/v/@astrojs/ts-plugin.svg?label=%20)](packages/language-tools/ts-plugin/CHANGELOG.md)                   |
-| [astro-vscode](packages/language-tools/vscode)                      | [![astro-vscode version](https://img.shields.io/npm/v/astro-vscode.svg?label=%20)](packages/language-tools/vscode/CHANGELOG.md)                                  |
-
-[![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/6178/badge)](https://bestpractices.coreinfrastructure.org/projects/6178)
-
-Several official projects are maintained outside of this repo:
-
-| Project                                                    | Repository                                                    |
-| ---------------------------------------------------------- | ------------------------------------------------------------- |
-| [@astrojs/compiler](https://github.com/withastro/compiler) | [withastro/compiler](https://github.com/withastro/compiler)   |
-| [Starlight](https://github.com/withastro/starlight)        | [withastro/starlight](https://github.com/withastro/starlight) |
-
-## Links
-
-- [License (MIT)](LICENSE)
-- [Code of Conduct](https://github.com/withastro/.github/blob/main/CODE_OF_CONDUCT.md)
-- [Open Governance & Voting](https://github.com/withastro/.github/blob/main/GOVERNANCE.md)
-- [Project Funding](https://github.com/withastro/.github/blob/main/FUNDING.md)
-- [Website](https://astro.build/)
-
-## Sponsors
-
-Astro is free, open source software made possible by these wonderful sponsors.
-
-[❤️ Sponsor Astro! ❤️](https://github.com/withastro/.github/blob/main/FUNDING.md)
-
-<p align="center">
-  <a target="_blank" href="https://opencollective.com/astrodotbuild">
-    <img src="https://astro.build/sponsors.png" alt="Sponsor logos including the current Astro Sponsors, Gold Sponsors, and Exclusive Partner Sponsors: Netlify, Sentry, and Project IDX." />
-  </a>
-</p>
+The test fails with two assertion errors on `main`:
+1. `AssertionError: Should not use console.error, should use logger`
+2. `AssertionError: Should not round-trip to storage; #partial should be false after regeneration` (An extra storage read occurs).
